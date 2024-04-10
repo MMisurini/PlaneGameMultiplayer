@@ -213,15 +213,6 @@ void ACYSPlayer::UpdateMesh(int32 Index)
                 PlaneMesh->SetRelativeLocation(FVector(-1180.f, 0.f, -180.f));
             }
         }));
-        
-        /*
-        auto Mesh = Cast<USkeletalMesh>(StaticLoadObject(USkeletalMesh::StaticClass(), nullptr, PlaneMeshPath_1));
-        if (Mesh)
-        {
-            PlaneMesh->SetSkeletalMesh(Mesh);
-            PlaneMesh->SetRelativeLocation(FVector(-1180.f, 0.f, -180.f));
-        }
-        */
     }
     else if (Index == 2)
     {
@@ -235,15 +226,6 @@ void ACYSPlayer::UpdateMesh(int32 Index)
                 PlaneMesh->SetRelativeLocation(FVector(-950.f, 0.f, -180.f));
             }
         }));
-
-        /*
-        auto Mesh = Cast<USkeletalMesh>(StaticLoadObject(USkeletalMesh::StaticClass(), nullptr, PlaneMeshPath_2));
-        if (Mesh)
-        {
-            PlaneMesh->SetSkeletalMesh(Mesh);
-            PlaneMesh->SetRelativeLocation(FVector(-950.f, 0.f, -180.f));
-        }
-        */
     }
     else
     {
@@ -257,15 +239,6 @@ void ACYSPlayer::UpdateMesh(int32 Index)
                 PlaneMesh->SetRelativeLocation(FVector(-1180.f, 0.f, -180.f));
             }
         }));
-
-        /*
-        auto Mesh = Cast<USkeletalMesh>(StaticLoadObject(USkeletalMesh::StaticClass(), nullptr, PlaneMeshPath_1));
-        if (Mesh)
-        {
-            PlaneMesh->SetSkeletalMesh(Mesh);
-            PlaneMesh->SetRelativeLocation(FVector(-1180.f, 0.f, -180.f));
-        }
-        */
     }
 }
 
