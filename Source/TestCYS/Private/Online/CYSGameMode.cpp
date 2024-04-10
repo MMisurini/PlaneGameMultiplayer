@@ -28,19 +28,31 @@ ACYSGameMode::ACYSGameMode()
 void ACYSGameMode::PostLogin(APlayerController* NewPlayer)
 {
 	Super::PostLogin(NewPlayer);
+
+	SpawnPlayer(NewPlayer);
 }
 
 void ACYSGameMode::HandleSeamlessTravelPlayer(AController*& C)
 {
 	Super::HandleSeamlessTravelPlayer(C);
 
+	SpawnPlayer(C);
+}
+
+void ACYSGameMode::PostSeamlessTravel()
+{
+	Super::PostSeamlessTravel();
+}
+
+void ACYSGameMode::SpawnPlayer(AController* C)
+{
 	if (ACYSPlayerController* PC = Cast<ACYSPlayerController>(C))
 	{
 		ConnectedPlayers.Add(PC);
-		
+
 		FString Value = UGameplayStatics::ParseOption(OptionsString, FString::FromInt(C->PlayerState->GetPlayerId()));
 		int32 Index = FCString::Atoi(*Value);
-		
+
 		FVector Location = FVector(0.f, 0.f, 10000.f);
 		FRotator Rotation = FRotator(0.f, 0.f, 0.f);
 
@@ -61,9 +73,4 @@ void ACYSGameMode::HandleSeamlessTravelPlayer(AController*& C)
 			PC->Possess(Player);
 		}
 	}
-}
-
-void ACYSGameMode::PostSeamlessTravel()
-{
-	Super::PostSeamlessTravel();
 }

@@ -216,27 +216,6 @@ private:
 	void BindInputFireOn();
 	void BindInputFireReleased();
 
-	void Throttle();
-	void Speed();
-
-	void SetInputs(float Forward, float Right, float Turn, float LookUp);
-
-	void InputForward(float Value);
-	void InputRight(float Value);
-	void InputTurn(float Value);
-	void InputLookUp(float Value);
-
-	//~~ Replications
-	void UpdateReplication(float DeltaTime);
-	void UpdateInputs();
-	void SendInputs(float DeltaTime);
-
-	void ReceiveInput(const FInputState& InputState);
-
-	UFUNCTION(Unreliable, Server, WithValidation)
-	void Server_ReceiveInputs(const FInputStateBuffer& Inputs);
-	bool Server_ReceiveInputs_Validate(const FInputStateBuffer& Inputs) { return true; }
-
 	void UpdateMesh(int32 Index);
 	void Fire();
 
@@ -249,6 +228,15 @@ private:
 
 	UFUNCTION(Reliable, Client)
 	void Client_CustomTakeDamage();
+
+	//~~ New Movement
+
+	void ForwardMovement(float DeltaTime);
+	void RotationMovement(float DeltaTime);
+	void SetClientTransform();
+
+	UFUNCTION(Unreliable, Server)
+	void Server_UpdateData(float CustomYaw, float CustomPitch, float CustomRoll, FVector CustomLocation, FRotator CustomRotation);
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 // VARIABLES
@@ -280,41 +268,90 @@ private:
 	UPROPERTY(Transient)
 	FTimerHandle TimerHandle_TakeDamage;
 
+	//////////////////////////////////////////////////////////////////////////////////////////////////
+	//~~ New Movement
+
 	UPROPERTY(Transient, Replicated)
-	bool ThrottleUp;
-	
+	float YawRep;
+
 	UPROPERTY(Transient, Replicated)
-	bool ThrottleDown;
+	float PitchRep;
 
-	bool ZeroThrottle;
+	UPROPERTY(Transient, Replicated)
+	float RollRep;
 
-	float CurrentThrottle = 5;
-	float Rudder;
+	UPROPERTY(Transient, Replicated)
+	FVector ActorLocation;
 
-	float AxisForward;
-	float AxisRight;
-	float AxisTurn;
-	float AxisLookUp;
+	UPROPERTY(Transient, Replicated)
+	FRotator ActorRotation;
 
-	//~~ Replications
+	//~~ Variables Configs
 
-	int cysTick;
+	UPROPERTY()
+	float TimeSinceUpdate = 0.f;
 
-	//Config
-	uint8 mInputSendRate = 60;
-	uint8 cysInputBufferSize = 8;
-	uint8 cysDoubleConsume;
+	UPROPERTY()
+	float Realtime = 0.f;
 
-	//Time
-	UPROPERTY(Replicated)
-	float cysServerTime;
+	UPROPERTY()
+	float CurrentSpeed = 3000.f;
 
-	float cysLocalTime;
-	float cysInputSendTime;
+	UPROPERTY()
+	float TargetSpeed = 3000.f;
 
-	//Buffer
-	UPROPERTY(Replicated)
-	FInputState cysLastInput;
+	UPROPERTY()
+	float Acceleration = 0.f;
 
-	FInputStateBuffer cysInputBuffer;
+	UPROPERTY()
+	float MaxSpeed = 15000.f;
+
+	UPROPERTY()
+	float MinSpeed = 0.f;
+
+	UPROPERTY()
+	float SpeedInterp = 5000.f;
+
+	//~~ Roll
+
+	UPROPERTY()
+	float Roll = 0.f;
+
+	UPROPERTY()
+	float RollMax = 130.f;
+
+	UPROPERTY()
+	float InterpRoll = 800.f;
+
+	UPROPERTY()
+	float DeltaRoll = 0.f;
+
+	//~~ Pitch
+
+	UPROPERTY()
+	float Pitch = 0.f;
+
+	UPROPERTY()
+	float PitchMax = 50.f;
+
+	UPROPERTY()
+	float InterpPitch = 200.f;
+
+	UPROPERTY()
+	float DeltaPitch = 0.f;
+
+	//~~ Yaw
+
+	UPROPERTY()
+	float Yaw = 0.f;
+
+	UPROPERTY()
+	float YawMax = 50.f;
+
+	UPROPERTY()
+	float InterpYaw = 200.f;
+
+	UPROPERTY()
+	float DeltaYaw = 0.f;
+
 };

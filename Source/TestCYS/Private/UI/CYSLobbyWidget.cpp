@@ -87,6 +87,7 @@ void CYSLobbyWidget::Construct(const FArguments& InArgs)
 				.AutoWidth()
 				[
 					SNew(SBox)
+					.WidthOverride(300)
 					[
 						SNew(SBorder)
 						[

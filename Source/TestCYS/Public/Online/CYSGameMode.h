@@ -23,6 +23,9 @@ public:
 	virtual void HandleSeamlessTravelPlayer(AController*& C) override;
 	virtual void PostSeamlessTravel() override;
 
+private:
+	void SpawnPlayer(AController* C);
+
 ////////////////////////////////////////////////////////////////////////////////////////////////
 // VARIABLES
 

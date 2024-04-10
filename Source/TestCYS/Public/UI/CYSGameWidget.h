@@ -32,6 +32,6 @@ public:
 	float CurrentValue = 0.2f;
 	float MinValue = 0.2f;
 	float MaxValue = 0.6f;
-	float RateOfChange = 15.0f;
+	float RateOfChange = 2.5f;
 	bool bIncreasing = true;
 };

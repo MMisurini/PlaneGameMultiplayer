@@ -15,6 +15,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Engine/AssetManager.h"
+#include "GameFramework/PawnMovementComponent.h"
 
 // Sets default values
 ACYSPlayer::ACYSPlayer()
@@ -23,8 +24,8 @@ ACYSPlayer::ACYSPlayer()
 
     CollisionMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Collision Mesh"));
     CollisionMesh->SetGenerateOverlapEvents(true);
-    CollisionMesh->SetSimulatePhysics(true);
-    CollisionMesh->SetEnableGravity(false);
+    //CollisionMesh->SetSimulatePhysics(false);
+    //CollisionMesh->SetEnableGravity(false);
     CollisionMesh->SetCollisionEnabled(ECollisionEnabled::Type::QueryAndPhysics);
     CollisionMesh->SetCollisionObjectType(ECollisionChannel::ECC_PhysicsBody);
     CollisionMesh->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Overlap);
@@ -70,6 +71,9 @@ void ACYSPlayer::BeginPlay()
 	
     if (IsLocallyControlled())
     {
+        TargetSpeed = MinSpeed;
+        CurrentSpeed = MinSpeed;
+
         if (ACYSPlayerController* PC = Cast<ACYSPlayerController>(GetController()))
         {
             PC->bShowMouseCursor = false;
@@ -82,31 +86,23 @@ void ACYSPlayer::BeginPlay()
     UpdateMesh(PlaneIndex);
 }
 
-// Called every frame
 void ACYSPlayer::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-    UpdateReplication(DeltaTime);
-
-    if (GetLocalRole() == ROLE_Authority)
+    if (IsLocallyControlled())
     {
-        Throttle();
+        ForwardMovement(DeltaTime);
+        RotationMovement(DeltaTime);
 
-        FVector Torque = UKismetMathLibrary::NegateVector(CollisionMesh->GetPhysicsAngularVelocityInDegrees()) / 0.75f;
-        CollisionMesh->AddTorqueInDegrees(Torque, NAME_None, true);
-        CollisionMesh->AddForce(FVector(0, 0, -1000.f), NAME_None, true);
-
-        Speed();
-
-        if (ZeroThrottle)
-        {
-            CurrentThrottle = UKismetMathLibrary::FInterpTo_Constant(CurrentThrottle, 0.f, UGameplayStatics::GetWorldDeltaSeconds(GetWorld()), 500.f);
-        }
-    }  
+        Server_UpdateData(Yaw, Pitch, Roll, GetActorLocation(), GetActorRotation());
+    }
+    else
+    {
+        SetClientTransform();
+    }
 }
 
-// Called to bind functionality to input
 void ACYSPlayer::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
@@ -124,12 +120,13 @@ void ACYSPlayer::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifeti
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-    DOREPLIFETIME(ACYSPlayer, ThrottleUp);
-    DOREPLIFETIME(ACYSPlayer, ThrottleDown);
     DOREPLIFETIME(ACYSPlayer, PlaneIndex);
 
-    DOREPLIFETIME(ACYSPlayer, cysServerTime);
-    DOREPLIFETIME_CONDITION(ACYSPlayer, cysLastInput, COND_SimulatedOnly);
+    DOREPLIFETIME(ACYSPlayer, YawRep);
+    DOREPLIFETIME(ACYSPlayer, PitchRep);
+    DOREPLIFETIME(ACYSPlayer, RollRep);
+    DOREPLIFETIME(ACYSPlayer, ActorLocation);
+    DOREPLIFETIME(ACYSPlayer, ActorRotation);
 }
 
 float ACYSPlayer::TakeDamage(float Damage, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
@@ -153,22 +150,37 @@ float ACYSPlayer::TakeDamage(float Damage, FDamageEvent const& DamageEvent, ACon
 
 void ACYSPlayer::BindInputMoveForward(float Value)
 {
-    AxisForward = Value;
+    if (IsLocallyControlled())
+    {
+        if (UKismetMathLibrary::Abs(Value) > 0.1f)
+        {
+            TargetSpeed = UKismetMathLibrary::Clamp(UKismetMathLibrary::FInterpTo_Constant(TargetSpeed, Value * MaxSpeed, UGameplayStatics::GetWorldDeltaSeconds(GetWorld()), SpeedInterp), MinSpeed, MaxSpeed);
+        }
+
+        float Value1 = ((CurrentSpeed - TargetSpeed) / MaxSpeed);
+        float Value2 = UKismetMathLibrary::Abs(Value1) + 0.2f;
+        float Interp = Value2 * SpeedInterp;
+        CurrentSpeed = UKismetMathLibrary::FInterpTo_Constant(CurrentSpeed, TargetSpeed, UGameplayStatics::GetWorldDeltaSeconds(GetWorld()), Interp);
+        Acceleration = (TargetSpeed >= CurrentSpeed) ? 0.f : -1.f;
+    }
 }
 
 void ACYSPlayer::BindInputMoveRight(float Value)
 {
-    AxisRight = Value;
+    Yaw = Value;
+    DeltaYaw = UKismetMathLibrary::Clamp(UKismetMathLibrary::FInterpTo_Constant(DeltaYaw, Yaw * YawMax, UGameplayStatics::GetWorldDeltaSeconds(GetWorld()), UKismetMathLibrary::Abs(DeltaYaw) + InterpYaw), -YawMax, YawMax);
 }
 
 void ACYSPlayer::BindInputTurn(float Value)
 {
-    AxisTurn = Value;
+    Roll = Value;
+    DeltaRoll = UKismetMathLibrary::Clamp(UKismetMathLibrary::FInterpTo_Constant(DeltaRoll, Roll * RollMax, UGameplayStatics::GetWorldDeltaSeconds(GetWorld()), UKismetMathLibrary::Abs(DeltaRoll) + InterpRoll), -RollMax, RollMax);
 }
 
 void ACYSPlayer::BindInputLookUP(float Value)
 {
-    AxisLookUp = Value;
+    Pitch = Value;
+    DeltaPitch = UKismetMathLibrary::Clamp(UKismetMathLibrary::FInterpTo_Constant(DeltaPitch, Pitch * PitchMax, UGameplayStatics::GetWorldDeltaSeconds(GetWorld()), UKismetMathLibrary::Abs(DeltaPitch) + InterpPitch), -PitchMax, PitchMax);
 }
 
 void ACYSPlayer::BindInputFirePressed()
@@ -180,284 +192,11 @@ void ACYSPlayer::BindInputFirePressed()
 void ACYSPlayer::BindInputFireOn()
 {
     Fire();
-
-    /*
-    FVector Location;
-    FRotator Rotation;
-    GetController()->GetPlayerViewPoint(Location, Rotation);
-    FVector End = Location + (UKismetMathLibrary::GetForwardVector(Rotation) * 50000.f);
-
-    TArray<AActor*> ActorsIgnored;
-    ActorsIgnored.Add(this);
-
-    FHitResult Result;
-    if (UKismetSystemLibrary::LineTraceSingle(GetWorld(), Location, End, ETraceTypeQuery::TraceTypeQuery_MAX, false, ActorsIgnored, EDrawDebugTrace::Type::ForDuration, Result, true))
-    {
-        if (Result.bBlockingHit && Result.GetActor())
-        {
-            if (ACYSPlayer* Player = Cast<ACYSPlayer>(Result.GetActor()))
-            {
-                
-            }
-        }
-    }
-    */
 }
 
 void ACYSPlayer::BindInputFireReleased()
 {
     GetWorldTimerManager().ClearTimer(TimerHandle_Fire);
-}
-
-void ACYSPlayer::Throttle()
-{
-    if (ThrottleUp)
-    {
-        CurrentThrottle = FMath::Clamp(CurrentThrottle + 1.f, 0.f, 400.f);
-    }
-    
-    if (ThrottleDown)
-    {
-        CurrentThrottle = FMath::Clamp(CurrentThrottle + -1.f, 0.f, 400.f);
-    }
-
-    if (CurrentThrottle > 50.f)
-    {
-       // Right_Trail->Activate();
-       // Left_Trail->Activate();
-    }
-    else
-    {
-        //Right_Trail->Deactivate();
-       // Left_Trail->Deactivate();
-    }
-}
-
-void ACYSPlayer::Speed()
-{
-    FVector A = CollisionMesh->GetPhysicsLinearVelocity();
-    FVector B = CollisionMesh->GetForwardVector() * (CurrentThrottle * 500.f);
-
-    CollisionMesh->SetPhysicsLinearVelocity(UKismetMathLibrary::VLerp(A, B, UGameplayStatics::GetWorldDeltaSeconds(GetWorld()) * 3));
-}
-
-void ACYSPlayer::SetInputs(float Forward, float Right, float Turn, float LookUp)
-{
-    InputForward(Forward);
-    InputRight(Right);
-    InputTurn(Turn);
-    InputLookUp(LookUp);
-}
-
-void ACYSPlayer::InputForward(float Value)
-{
-    if (Value == 0.f)
-    {
-        ThrottleUp = false;
-        ThrottleDown = false;
-    }
-    else if (Value > 0.f)
-    {
-        ThrottleUp = true;
-        ThrottleDown = false;
-    }
-    else if (Value < 0.f)
-    {
-        ThrottleUp = false;
-        ThrottleDown = true;
-    }
-}
-
-void ACYSPlayer::InputRight(float Value)
-{
-    Rudder = Value * (CurrentThrottle / 750.f);
-    float x = (Value * 4000) * (CurrentThrottle / 750.f);
-
-    FVector Torque = UKismetMathLibrary::VLerp(FVector::ZeroVector, CollisionMesh->GetUpVector() * x, UGameplayStatics::GetWorldDeltaSeconds(GetWorld()) * 10);
-    CollisionMesh->AddTorqueInDegrees(Torque, NAME_None, true);
-}
-
-void ACYSPlayer::InputTurn(float Value)
-{
-    if (CollisionMesh)
-    {
-        float A = (Value * -2000);
-        float B = A / 3.f;
-
-        FVector Torque = UKismetMathLibrary::VLerp(FVector::ZeroVector, CollisionMesh->GetForwardVector() * UKismetMathLibrary::SelectFloat(A, B, CurrentThrottle > 0.f), UGameplayStatics::GetWorldDeltaSeconds(GetWorld()) * 2);
-        CollisionMesh->AddTorqueInDegrees(Torque, NAME_None, true);
-    }
-}
-
-void ACYSPlayer::InputLookUp(float Value)
-{
-    if (CollisionMesh)
-    {
-        float A = (Value * -2000);
-        float B = A / 3.f;
-
-        FVector Torque = UKismetMathLibrary::VLerp(FVector::ZeroVector, CollisionMesh->GetRightVector() * UKismetMathLibrary::SelectFloat(A, B, CurrentThrottle > 0.f), UGameplayStatics::GetWorldDeltaSeconds(GetWorld()) * 2);
-        CollisionMesh->AddTorqueInDegrees(Torque, NAME_None, true);
-    }
-}
-
-void ACYSPlayer::UpdateReplication(float DeltaTime)
-{
-    //Time and Tick
-    if (GetNetMode() < ENetMode::NM_Client)
-    {
-        cysServerTime += DeltaTime;
-    }
-    if (FMath::Abs(cysServerTime - cysLocalTime) > 0.1f)
-    {
-        cysLocalTime = cysServerTime;
-    }
-    else
-    {
-        cysLocalTime = FMath::Lerp(cysLocalTime, cysServerTime, DeltaTime);
-    }
-
-    cysLocalTime += DeltaTime;
-    cysTick++;
-
-    UpdateInputs();
-    SendInputs(DeltaTime);
-}
-
-void ACYSPlayer::UpdateInputs()
-{
-    if (IsLocallyControlled())
-    {
-        cysLastInput.Tick = cysTick;
-        cysLastInput.AxisForward = AxisForward;
-        cysLastInput.AxisRight = AxisRight;
-        cysLastInput.AxisTurn = AxisTurn;
-        cysLastInput.AxisLookUp = AxisLookUp;
-
-        cysInputBuffer.mBuffer.Add(cysLastInput);
-        if (cysInputBuffer.mBuffer.Num() > cysInputBufferSize)
-        {
-            cysInputBuffer.mBuffer.RemoveAt(0);
-        }
-    }
-    
-    if (GetLocalRole() == ROLE_Authority)
-    {
-        int bufferCount = cysInputBuffer.mBuffer.Num();
-
-        //switch to double consume mode if buffer is twice client buffer
-        if (bufferCount >= 2 * cysInputBufferSize)
-        {
-            cysDoubleConsume = cysInputBufferSize;
-        }
-
-        //how many should we consume
-        bool canDouble = cysDoubleConsume > 0 && bufferCount > 1 && cysInputBuffer.mBuffer[0].IsSame(cysInputBuffer.mBuffer[1]);
-        int serverConsume = canDouble ? 2 : 1;
-        if (canDouble) cysDoubleConsume--;
-
-        for (int i = 0; i < serverConsume; i++)
-        {
-            bool hasInput = bufferCount > 0;
-
-            if (hasInput)
-            {
-                FInputState s = hasInput ? cysInputBuffer.mBuffer[0] : cysLastInput;
-                cysLastInput = s;
-
-                SetInputs(s.AxisForward, s.AxisRight, s.AxisTurn, s.AxisLookUp);
-                //mVehicle->getStandardInput()->setInputs(s.mThrottle, s.mBrake, s.mSteer, s.mClutch, s.mGear, s.mHandbrake);
-
-                cysInputBuffer.mBuffer.RemoveAt(0);
-            }
-        }
-    }
-
-    if (GetLocalRole() < ROLE_Authority)
-    {
-        FInputState s = cysLastInput;
-        SetInputs(s.AxisForward, s.AxisRight, s.AxisTurn, s.AxisLookUp);
-        //mVehicle->getStandardInput()->setInputs(s.mThrottle, s.mBrake, s.mSteer, s.mClutch, s.mGear, s.mHandbrake);
-    }
-}
-
-void ACYSPlayer::SendInputs(float DeltaTime)
-{
-    if (GetLocalRole() < ROLE_Authority)
-    {
-        cysInputSendTime += DeltaTime;
-
-        float dts = 1.0f / mInputSendRate;
-        if (dts < DeltaTime) 
-        {
-            dts = DeltaTime; //no more than frame rate
-        }
-
-        if (cysInputSendTime >= dts)
-        {
-            cysInputSendTime = 0.0f;
-            Server_ReceiveInputs(cysInputBuffer);
-        }
-    }
-}
-
-void ACYSPlayer::ReceiveInput(const FInputState& InputState)
-{
-    //add & return if empty
-    int count = cysInputBuffer.mBuffer.Num();
-    if (count == 0)
-    {
-        cysInputBuffer.mBuffer.Add(InputState);
-        return;
-    }
-
-    //check existance
-    int index = -1;
-    for (int i = 0; i < count; i++)
-    {
-        if (cysInputBuffer.mBuffer[i].Tick == InputState.Tick)
-        {
-            index = i;
-            break;
-        }
-    }
-
-    //add if non-existant
-    if (index == -1)
-    {
-        //first/last tick
-        int ft = cysLastInput.Tick;
-        int lt = cysInputBuffer.mBuffer[count - 1].Tick;
-
-        //in-order packet
-        if (InputState.Tick == lt + 1)
-        {
-            cysInputBuffer.mBuffer.Add(InputState);
-        }
-        //out-of-order packet
-        else if (ft < InputState.Tick && InputState.Tick < lt)
-        {
-            int ni = -1;
-            for (int i = 0; i < count; i++)
-            {
-                ni = i;
-                if (cysInputBuffer.mBuffer[i].Tick > InputState.Tick) break;
-            }
-            if (ni != -1)
-            {
-                cysInputBuffer.mBuffer.Insert(InputState, ni);
-            }
-        }
-    }
-}
-
-void ACYSPlayer::Server_ReceiveInputs_Implementation(const FInputStateBuffer& Inputs)
-{
-    int count = Inputs.mBuffer.Num();
-    for (int i = 0; i < count; i++)
-    {
-        ReceiveInput(Inputs.mBuffer[i]);
-    }
 }
 
 void ACYSPlayer::UpdateMesh(int32 Index)
@@ -582,4 +321,30 @@ void ACYSPlayer::CheckTakeDamage()
 void ACYSPlayer::Client_CustomTakeDamage_Implementation()
 {
     CustomTakeDamage();
+}
+
+void ACYSPlayer::ForwardMovement(float DeltaTime)
+{
+    AddActorLocalOffset(FVector(DeltaTime * CurrentSpeed, 0.f, 0.f), true);
+}
+
+void ACYSPlayer::RotationMovement(float DeltaTime)
+{
+    FRotator DeltaRot = FRotator(DeltaTime * DeltaPitch, DeltaTime * DeltaYaw, DeltaTime * DeltaRoll);
+    AddActorLocalRotation(DeltaRot, true);
+}
+
+void ACYSPlayer::SetClientTransform()
+{
+    SetActorRotation(UKismetMathLibrary::RInterpTo(GetActorRotation(), ActorRotation, UGameplayStatics::GetWorldDeltaSeconds(GetWorld()), 8.0f));
+    SetActorLocation(UKismetMathLibrary::VInterpTo(GetActorLocation(), ActorLocation, UGameplayStatics::GetWorldDeltaSeconds(GetWorld()), 8.0f));
+}
+
+void ACYSPlayer::Server_UpdateData_Implementation(float CustomYaw, float CustomPitch, float CustomRoll, FVector CustomLocation, FRotator CustomRotation)
+{
+    YawRep = CustomYaw;
+    PitchRep = CustomPitch;
+    RollRep = CustomRoll;
+    ActorLocation = CustomLocation;
+    ActorRotation = CustomRotation;
 }
